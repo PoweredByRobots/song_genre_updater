@@ -13,11 +13,15 @@ def options
 end
 
 def preserve_genres
-  %w(Christmas art01 fraser18)
+  %w(Christmas art01 fraser18 dhr)
 end
 
 def mysql_client
   @mysql_client ||= Mysql2::Client.new(options)
+end
+
+def musicbrainz_client
+  @musicbrainz_client ||= MusicBrainz::Client.new
 end
 
 def pause
@@ -55,7 +59,7 @@ def sterilize(genres)
 end
 
 def update_song(id, artist, title, existing_genres)
-  @backlog -= 1
+  @remaining -= 1
   add_to_list(id)
   puts "\n#{artist} - #{title}..."
   genres = lookup_genres(artist, title) || existing_genres
@@ -121,10 +125,6 @@ rescue => error
   puts "MusicBrainz error: #{error.message}"
 end
 
-def musicbrainz_client
-  @musicbrainz_client ||= MusicBrainz::Client.new
-end
-
 def update_genres(id, genres)
   sql = "UPDATE songlist SET grouping = \'#{genres.join(', ')}\' " \
         "WHERE id = #{id}"
@@ -132,6 +132,8 @@ def update_genres(id, genres)
   mysql_client.query(sql)
 rescue => error
   puts "Skipping #{id}\n#{error.message}"
+  @mysql_error_count += 1
+  abort('Too many db errors') if @mysql_error_count > 3
 end
 
 def nested_hash_value(obj, key)
@@ -153,10 +155,14 @@ def configure_musicbrainz
 end
 
 system 'clear'
+
 configure_musicbrainz
 songs = lookup_songlist
-@backlog = songs.count
-puts "-==[#{@backlog}]==- songs to go!"
+@remaining = songs.count
+@mysql_error_count = 0
+
+puts "-==[#{@remaining}]==- songs to go!"
+
 songs.each do |id, artist, title, genres|
   update_song(id, artist, title, genres)
 end
